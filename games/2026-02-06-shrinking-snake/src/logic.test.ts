@@ -95,7 +95,9 @@ describe('snake logic', () => {
         { x: 5, y: 5 },
         { x: 5, y: 4 },
         { x: 4, y: 4 },
-        { x: 4, y: 5 }
+        { x: 4, y: 5 },
+        { x: 4, y: 6 },
+        { x: 5, y: 6 }
       ],
       direction: 'left',
       queuedDirection: 'left',
