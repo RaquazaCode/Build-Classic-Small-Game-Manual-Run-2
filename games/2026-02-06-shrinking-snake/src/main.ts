@@ -1,5 +1,6 @@
 import './style.css';
-import { changeDirection, createInitialState, DEFAULT_CONFIG, resetGame, stepGame } from './logic';
+import { BOARD_HEIGHT, BOARD_WIDTH, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS } from './constants';
+import { changeDirection, createInitialState, resetGame, stepGame } from './logic';
 import type { Direction, GameMode, GameState } from './types';
 
 declare global {
@@ -9,7 +10,6 @@ declare global {
   }
 }
 
-const TICK_MS = 120;
 const MAX_ACCUMULATOR_MS = 1000;
 const PADDING = 20;
 
@@ -46,9 +46,13 @@ const canvas = requireElement<HTMLCanvasElement>('#game-canvas');
 const hudText = requireElement<HTMLDivElement>('#hud-text');
 const ctx = require2dContext(canvas);
 
-let state: GameState = createInitialState(DEFAULT_CONFIG);
+let state: GameState = createInitialState(DEFAULT_DIFFICULTY);
 let accumulator = 0;
 let lastFrameTime = performance.now();
+
+function currentTickMs(): number {
+  return DIFFICULTY_CONFIGS[state.difficulty].tickMs;
+}
 
 function colorForMode(mode: GameMode): string {
   switch (mode) {
@@ -89,7 +93,7 @@ function directionFromKey(key: string): Direction | null {
 }
 
 function resizeCanvas(): void {
-  const ratio = DEFAULT_CONFIG.gridWidth / DEFAULT_CONFIG.gridHeight;
+  const ratio = BOARD_WIDTH / BOARD_HEIGHT;
   const maxWidth = Math.min(window.innerWidth - 32, 980);
   const maxHeight = Math.min(window.innerHeight - 200, 720);
 
@@ -117,13 +121,13 @@ function boardMetrics() {
   const height = canvas.clientHeight;
   const cell = Math.floor(
     Math.min(
-      (width - PADDING * 2) / DEFAULT_CONFIG.gridWidth,
-      (height - PADDING * 2) / DEFAULT_CONFIG.gridHeight
+      (width - PADDING * 2) / BOARD_WIDTH,
+      (height - PADDING * 2) / BOARD_HEIGHT
     )
   );
 
-  const boardWidth = cell * DEFAULT_CONFIG.gridWidth;
-  const boardHeight = cell * DEFAULT_CONFIG.gridHeight;
+  const boardWidth = cell * BOARD_WIDTH;
+  const boardHeight = cell * BOARD_HEIGHT;
 
   return {
     cell,
@@ -158,8 +162,8 @@ function drawBoard(): void {
   ctx.lineWidth = 2;
   ctx.strokeRect(x, y, width, height);
 
-  for (let gy = 0; gy < DEFAULT_CONFIG.gridHeight; gy += 1) {
-    for (let gx = 0; gx < DEFAULT_CONFIG.gridWidth; gx += 1) {
+  for (let gy = 0; gy < BOARD_HEIGHT; gy += 1) {
+    for (let gx = 0; gx < BOARD_WIDTH; gx += 1) {
       const outOfBounds =
         gx < state.bounds.minX ||
         gx > state.bounds.maxX ||
@@ -175,14 +179,14 @@ function drawBoard(): void {
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.lineWidth = 1;
-  for (let gx = 1; gx < DEFAULT_CONFIG.gridWidth; gx += 1) {
+  for (let gx = 1; gx < BOARD_WIDTH; gx += 1) {
     const lineX = x + gx * cell;
     ctx.beginPath();
     ctx.moveTo(lineX, y);
     ctx.lineTo(lineX, y + height);
     ctx.stroke();
   }
-  for (let gy = 1; gy < DEFAULT_CONFIG.gridHeight; gy += 1) {
+  for (let gy = 1; gy < BOARD_HEIGHT; gy += 1) {
     const lineY = y + gy * cell;
     ctx.beginPath();
     ctx.moveTo(x, lineY);
@@ -241,7 +245,7 @@ function render(): void {
 }
 
 function stepOneTick(): void {
-  state = stepGame(state, DEFAULT_CONFIG);
+  state = stepGame(state);
 }
 
 function runSimulation(deltaMs: number): void {
@@ -251,9 +255,11 @@ function runSimulation(deltaMs: number): void {
 
   accumulator = Math.min(accumulator + deltaMs, MAX_ACCUMULATOR_MS);
 
-  while (accumulator >= TICK_MS) {
+  const tickMs = currentTickMs();
+
+  while (accumulator >= tickMs) {
     stepOneTick();
-    accumulator -= TICK_MS;
+    accumulator -= tickMs;
     if (state.mode !== 'running') {
       accumulator = 0;
       break;
@@ -263,7 +269,7 @@ function runSimulation(deltaMs: number): void {
 
 function ensurePlayableStateForDirectionInput(): void {
   if (state.mode === 'game_over') {
-    state = resetGame(state.bestScore, DEFAULT_CONFIG);
+    state = resetGame(state.bestScore, state.difficulty);
   }
   if (state.mode === 'ready') {
     state = {
@@ -307,7 +313,7 @@ function handleKeyDown(event: KeyboardEvent): void {
 
   if (event.key === 'r' || event.key === 'R') {
     event.preventDefault();
-    state = resetGame(state.bestScore, DEFAULT_CONFIG);
+    state = resetGame(state.bestScore, state.difficulty);
     accumulator = 0;
     return;
   }
@@ -335,7 +341,8 @@ window.render_game_to_text = () => {
 };
 
 window.advanceTime = (ms: number) => {
-  const steps = Math.max(1, Math.round(ms / TICK_MS));
+  const tickMs = currentTickMs();
+  const steps = Math.max(1, Math.round(ms / tickMs));
   for (let i = 0; i < steps; i += 1) {
     if (state.mode !== 'running') {
       break;

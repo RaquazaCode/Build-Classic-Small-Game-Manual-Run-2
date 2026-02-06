@@ -1,10 +1,20 @@
-import type { Bounds, Direction, GameConfig, GameState, Point } from './types';
+import { BOARD_HEIGHT, BOARD_WIDTH, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS, FOOD_POINTS } from './constants';
+import { createSeed, nextRandom } from './rng';
+import type {
+  Bounds,
+  DifficultyConfig,
+  DifficultyId,
+  Direction,
+  GameConfig,
+  GameState,
+  Point
+} from './types';
 
 export const DEFAULT_CONFIG: GameConfig = {
-  gridWidth: 24,
-  gridHeight: 18,
-  scorePerFood: 10,
-  shrinkEveryPoints: 30
+  gridWidth: BOARD_WIDTH,
+  gridHeight: BOARD_HEIGHT,
+  scorePerFood: FOOD_POINTS,
+  shrinkEveryPoints: DIFFICULTY_CONFIGS[DEFAULT_DIFFICULTY].shrinkEveryPoints
 };
 
 const DIRECTION_DELTAS: Record<Direction, Point> = {
@@ -20,6 +30,10 @@ const OPPOSITE_DIRECTION: Record<Direction, Direction> = {
   left: 'right',
   right: 'left'
 };
+
+function pointKey(point: Point): string {
+  return `${point.x},${point.y}`;
+}
 
 function pointsEqual(a: Point, b: Point): boolean {
   return a.x === b.x && a.y === b.y;
@@ -47,29 +61,95 @@ function canShrink(bounds: Bounds): boolean {
   return bounds.maxX - bounds.minX > 2 && bounds.maxY - bounds.minY > 2;
 }
 
-function spawnFood(snake: Point[], bounds: Bounds): Point | null {
+function getSpawnCandidates(
+  bounds: Bounds,
+  occupied: Set<string>,
+  wallMargin: number
+): Point[] {
+  const candidates: Point[] = [];
+
   for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
     for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-      const candidate = { x, y };
-      if (!snake.some((segment) => pointsEqual(segment, candidate))) {
-        return candidate;
+      if (
+        x < bounds.minX + wallMargin ||
+        x > bounds.maxX - wallMargin ||
+        y < bounds.minY + wallMargin ||
+        y > bounds.maxY - wallMargin
+      ) {
+        continue;
       }
+
+      const key = `${x},${y}`;
+      if (occupied.has(key)) {
+        continue;
+      }
+
+      candidates.push({ x, y });
     }
   }
-  return null;
+
+  return candidates;
+}
+
+function pickRandomPoint(candidates: Point[], rngState: number): { point: Point | null; rngState: number } {
+  if (candidates.length === 0) {
+    return { point: null, rngState };
+  }
+
+  const step = nextRandom(rngState);
+  const index = Math.min(candidates.length - 1, Math.floor(step.value * candidates.length));
+
+  return {
+    point: candidates[index],
+    rngState: step.state
+  };
+}
+
+function spawnFood(
+  snake: Point[],
+  bounds: Bounds,
+  fireTiles: Point[],
+  minimumWallMargin: number,
+  rngState: number
+): { point: Point | null; rngState: number } {
+  const occupied = new Set<string>();
+
+  snake.forEach((segment) => occupied.add(pointKey(segment)));
+  fireTiles.forEach((tile) => occupied.add(pointKey(tile)));
+
+  for (let margin = minimumWallMargin; margin >= 0; margin -= 1) {
+    const candidates = getSpawnCandidates(bounds, occupied, margin);
+    if (candidates.length > 0) {
+      return pickRandomPoint(candidates, rngState);
+    }
+  }
+
+  return { point: null, rngState };
 }
 
 function withGameOver(state: GameState): GameState {
   return {
     ...state,
     mode: 'game_over',
+    screen: 'game_over',
     bestScore: Math.max(state.bestScore, state.score)
   };
 }
 
-export function createInitialState(config: GameConfig = DEFAULT_CONFIG): GameState {
-  const centerX = Math.floor(config.gridWidth / 2);
-  const centerY = Math.floor(config.gridHeight / 2);
+export function getDifficultyConfig(difficulty: DifficultyId): DifficultyConfig {
+  return DIFFICULTY_CONFIGS[difficulty];
+}
+
+export function createInitialState(
+  difficulty: DifficultyId = DEFAULT_DIFFICULTY,
+  seed: number = createSeed(),
+  bestScore = 0
+): GameState {
+  const normalizedSeed = seed >>> 0;
+  const config = getDifficultyConfig(difficulty);
+
+  const centerX = Math.floor(BOARD_WIDTH / 2);
+  const centerY = Math.floor(BOARD_HEIGHT / 2);
   const snake: Point[] = [
     { x: centerX, y: centerY },
     { x: centerX - 1, y: centerY },
@@ -78,24 +158,32 @@ export function createInitialState(config: GameConfig = DEFAULT_CONFIG): GameSta
 
   const bounds: Bounds = {
     minX: 0,
-    maxX: config.gridWidth - 1,
+    maxX: BOARD_WIDTH - 1,
     minY: 0,
-    maxY: config.gridHeight - 1
+    maxY: BOARD_HEIGHT - 1
   };
 
-  const food = spawnFood(snake, bounds) ?? { x: 0, y: 0 };
+  const spawn = spawnFood(snake, bounds, [], config.foodWallMargin, normalizedSeed);
 
   return {
     mode: 'ready',
+    screen: 'playing',
+    difficulty,
+    seed: normalizedSeed,
+    rngState: spawn.rngState,
     snake,
     direction: 'right',
     queuedDirection: 'right',
-    food,
+    food: spawn.point ?? { x: centerX, y: centerY - 1 },
+    fireTiles: [],
     score: 0,
-    bestScore: 0,
+    bestScore,
+    foodsEaten: 0,
+    elapsedMs: 0,
     bounds,
     shrinkLevel: 0,
-    tickCount: 0
+    tickCount: 0,
+    foodPoints: 0
   };
 }
 
@@ -114,18 +202,28 @@ export function changeDirection(state: GameState, nextDirection: Direction): Gam
   };
 }
 
-export function stepGame(state: GameState, config: GameConfig = DEFAULT_CONFIG): GameState {
+export function stepGame(state: GameState): GameState {
   if (state.mode !== 'running') {
     return state;
   }
 
+  const difficultyConfig = getDifficultyConfig(state.difficulty);
   const movement = DIRECTION_DELTAS[state.queuedDirection];
+
   const nextHead = {
     x: state.snake[0].x + movement.x,
     y: state.snake[0].y + movement.y
   };
 
   if (!inBounds(nextHead, state.bounds)) {
+    return withGameOver({
+      ...state,
+      direction: state.queuedDirection,
+      tickCount: state.tickCount + 1
+    });
+  }
+
+  if (state.fireTiles.some((tile) => pointsEqual(tile, nextHead))) {
     return withGameOver({
       ...state,
       direction: state.queuedDirection,
@@ -148,19 +246,20 @@ export function stepGame(state: GameState, config: GameConfig = DEFAULT_CONFIG):
     ? [nextHead, ...state.snake]
     : [nextHead, ...state.snake.slice(0, -1)];
 
-  const nextScore = eatsFood ? state.score + config.scorePerFood : state.score;
+  const nextFoodsEaten = eatsFood ? state.foodsEaten + 1 : state.foodsEaten;
+  const nextFoodPoints = eatsFood ? state.foodPoints + FOOD_POINTS : state.foodPoints;
+  const nextScore = nextFoodsEaten * FOOD_POINTS;
+
   let nextBounds = state.bounds;
   let nextShrinkLevel = state.shrinkLevel;
 
-  if (
-    eatsFood &&
-    config.shrinkEveryPoints > 0 &&
-    nextScore > 0 &&
-    nextScore % config.shrinkEveryPoints === 0 &&
-    canShrink(state.bounds)
-  ) {
-    nextBounds = shrinkBounds(state.bounds);
-    nextShrinkLevel = state.shrinkLevel + 1;
+  if (eatsFood && difficultyConfig.shrinkEveryPoints > 0) {
+    const targetShrinkLevel = Math.floor(nextFoodPoints / difficultyConfig.shrinkEveryPoints);
+
+    while (nextShrinkLevel < targetShrinkLevel && canShrink(nextBounds)) {
+      nextBounds = shrinkBounds(nextBounds);
+      nextShrinkLevel += 1;
+    }
   }
 
   if (!nextSnake.every((segment) => inBounds(segment, nextBounds))) {
@@ -168,6 +267,8 @@ export function stepGame(state: GameState, config: GameConfig = DEFAULT_CONFIG):
       ...state,
       snake: nextSnake,
       score: nextScore,
+      foodsEaten: nextFoodsEaten,
+      foodPoints: nextFoodPoints,
       bounds: nextBounds,
       shrinkLevel: nextShrinkLevel,
       direction: state.queuedDirection,
@@ -175,18 +276,34 @@ export function stepGame(state: GameState, config: GameConfig = DEFAULT_CONFIG):
     });
   }
 
-  const nextFood = eatsFood ? spawnFood(nextSnake, nextBounds) : state.food;
+  let nextFood = state.food;
+  let nextRngState = state.rngState;
 
-  if (!nextFood) {
-    return withGameOver({
-      ...state,
-      snake: nextSnake,
-      score: nextScore,
-      bounds: nextBounds,
-      shrinkLevel: nextShrinkLevel,
-      direction: state.queuedDirection,
-      tickCount: state.tickCount + 1
-    });
+  if (eatsFood) {
+    const spawn = spawnFood(
+      nextSnake,
+      nextBounds,
+      state.fireTiles,
+      difficultyConfig.foodWallMargin,
+      state.rngState
+    );
+
+    if (!spawn.point) {
+      return withGameOver({
+        ...state,
+        snake: nextSnake,
+        score: nextScore,
+        foodsEaten: nextFoodsEaten,
+        foodPoints: nextFoodPoints,
+        bounds: nextBounds,
+        shrinkLevel: nextShrinkLevel,
+        direction: state.queuedDirection,
+        tickCount: state.tickCount + 1
+      });
+    }
+
+    nextFood = spawn.point;
+    nextRngState = spawn.rngState;
   }
 
   return {
@@ -194,7 +311,10 @@ export function stepGame(state: GameState, config: GameConfig = DEFAULT_CONFIG):
     snake: nextSnake,
     direction: state.queuedDirection,
     food: nextFood,
+    rngState: nextRngState,
     score: nextScore,
+    foodsEaten: nextFoodsEaten,
+    foodPoints: nextFoodPoints,
     bestScore: Math.max(state.bestScore, nextScore),
     bounds: nextBounds,
     shrinkLevel: nextShrinkLevel,
@@ -202,9 +322,10 @@ export function stepGame(state: GameState, config: GameConfig = DEFAULT_CONFIG):
   };
 }
 
-export function resetGame(bestScore = 0, config: GameConfig = DEFAULT_CONFIG): GameState {
-  return {
-    ...createInitialState(config),
-    bestScore
-  };
+export function resetGame(
+  bestScore = 0,
+  difficulty: DifficultyId = DEFAULT_DIFFICULTY,
+  seed: number = createSeed()
+): GameState {
+  return createInitialState(difficulty, seed, bestScore);
 }
