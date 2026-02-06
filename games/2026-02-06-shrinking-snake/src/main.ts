@@ -1,7 +1,9 @@
 import './style.css';
 import { BOARD_HEIGHT, BOARD_WIDTH, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS } from './constants';
+import { createSeed } from './rng';
+import { renderFrame } from './render';
 import { advanceElapsed, changeDirection, createInitialState, resetGame, stepGame } from './logic';
-import type { Direction, GameMode, GameState } from './types';
+import type { DifficultyId, Direction, GameMode, GameState, ScreenMode } from './types';
 
 declare global {
   interface Window {
@@ -11,7 +13,8 @@ declare global {
 }
 
 const MAX_ACCUMULATOR_MS = 1000;
-const PADDING = 20;
+
+const DIFFICULTY_ORDER: DifficultyId[] = ['easy', 'medium', 'hard'];
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -37,6 +40,15 @@ app.innerHTML = `
       <h1>Shrinking Snake</h1>
       <p>Classic grid snake with collapsing walls.</p>
     </header>
+    <section class="menu-panel" id="menu-panel">
+      <p class="menu-label">Select Difficulty</p>
+      <div class="menu-buttons" id="menu-buttons">
+        <button type="button" data-difficulty="easy">Easy</button>
+        <button type="button" data-difficulty="medium">Medium</button>
+        <button type="button" data-difficulty="hard">Hard</button>
+      </div>
+      <p class="menu-help">Keyboard: 1/2/3 or Arrow keys + Enter</p>
+    </section>
     <canvas id="game-canvas" aria-label="Shrinking Snake game canvas"></canvas>
     <div class="hud" id="hud-text"></div>
   </main>
@@ -44,14 +56,22 @@ app.innerHTML = `
 
 const canvas = requireElement<HTMLCanvasElement>('#game-canvas');
 const hudText = requireElement<HTMLDivElement>('#hud-text');
+const menuPanel = requireElement<HTMLElement>('#menu-panel');
+const menuButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-difficulty]'));
 const ctx = require2dContext(canvas);
 
-let state: GameState = createInitialState(DEFAULT_DIFFICULTY);
+let screen: ScreenMode = 'menu';
+let selectedDifficulty: DifficultyId = DEFAULT_DIFFICULTY;
+let state: GameState | null = null;
 let accumulator = 0;
 let lastFrameTime = performance.now();
+let menuAnimationMs = 0;
 
 function currentTickMs(): number {
-  return DIFFICULTY_CONFIGS[state.difficulty].tickMs;
+  if (state) {
+    return DIFFICULTY_CONFIGS[state.difficulty].tickMs;
+  }
+  return DIFFICULTY_CONFIGS[selectedDifficulty].tickMs;
 }
 
 function colorForMode(mode: GameMode): string {
@@ -67,6 +87,13 @@ function colorForMode(mode: GameMode): string {
     default:
       return '#ffffff';
   }
+}
+
+function formatDuration(totalMs: number): string {
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function directionFromKey(key: string): Direction | null {
@@ -92,17 +119,58 @@ function directionFromKey(key: string): Direction | null {
   }
 }
 
-function formatDuration(totalMs: number): string {
-  const totalSeconds = Math.floor(totalMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+function getCurrentBestScore(): number {
+  return state?.bestScore ?? 0;
+}
+
+function startGame(difficulty: DifficultyId): void {
+  selectedDifficulty = difficulty;
+  const seed = createSeed();
+  state = createInitialState(difficulty, seed, getCurrentBestScore());
+  state = {
+    ...state,
+    mode: 'running',
+    screen: 'playing'
+  };
+  screen = 'playing';
+  accumulator = 0;
+  syncMenuUi();
+}
+
+function showMenu(): void {
+  screen = 'menu';
+  if (state) {
+    state = {
+      ...state,
+      mode: 'ready',
+      screen: 'menu'
+    };
+  }
+  syncMenuUi();
+}
+
+function cycleDifficulty(offset: number): void {
+  const currentIndex = DIFFICULTY_ORDER.indexOf(selectedDifficulty);
+  const nextIndex = (currentIndex + offset + DIFFICULTY_ORDER.length) % DIFFICULTY_ORDER.length;
+  selectedDifficulty = DIFFICULTY_ORDER[nextIndex];
+  syncMenuUi();
+}
+
+function syncMenuUi(): void {
+  const showMenuPanel = screen === 'menu';
+  menuPanel.style.display = showMenuPanel ? 'grid' : 'none';
+
+  menuButtons.forEach((button) => {
+    const difficulty = button.dataset.difficulty as DifficultyId;
+    const active = difficulty === selectedDifficulty;
+    button.classList.toggle('is-selected', active);
+  });
 }
 
 function resizeCanvas(): void {
   const ratio = BOARD_WIDTH / BOARD_HEIGHT;
   const maxWidth = Math.min(window.innerWidth - 32, 980);
-  const maxHeight = Math.min(window.innerHeight - 200, 720);
+  const maxHeight = Math.min(window.innerHeight - 220, 720);
 
   let cssWidth = maxWidth;
   let cssHeight = cssWidth / ratio;
@@ -123,138 +191,21 @@ function resizeCanvas(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-function boardMetrics() {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  const cell = Math.floor(
-    Math.min(
-      (width - PADDING * 2) / BOARD_WIDTH,
-      (height - PADDING * 2) / BOARD_HEIGHT
-    )
-  );
-
-  const boardWidth = cell * BOARD_WIDTH;
-  const boardHeight = cell * BOARD_HEIGHT;
-
-  return {
-    cell,
-    x: Math.floor((width - boardWidth) / 2),
-    y: Math.floor((height - boardHeight) / 2),
-    width: boardWidth,
-    height: boardHeight
-  };
-}
-
-function fillBackground(width: number, height: number): void {
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, '#0b1324');
-  gradient.addColorStop(1, '#16243f');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
-  for (let i = 0; i < width; i += 30) {
-    ctx.fillRect(i, 0, 1, height);
-  }
-}
-
-function drawBoard(): void {
-  const { cell, x, y, width, height } = boardMetrics();
-  const pulse = Math.sin(state.tickCount * 0.2) * 0.5 + 0.5;
-
-  ctx.fillStyle = '#1c2a46';
-  ctx.fillRect(x, y, width, height);
-
-  ctx.strokeStyle = '#4f6ea5';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, width, height);
-
-  for (let gy = 0; gy < BOARD_HEIGHT; gy += 1) {
-    for (let gx = 0; gx < BOARD_WIDTH; gx += 1) {
-      const outOfBounds =
-        gx < state.bounds.minX ||
-        gx > state.bounds.maxX ||
-        gy < state.bounds.minY ||
-        gy > state.bounds.maxY;
-
-      if (outOfBounds) {
-        ctx.fillStyle = `rgba(167, 45, 45, ${0.3 + pulse * 0.35})`;
-        ctx.fillRect(x + gx * cell, y + gy * cell, cell, cell);
-      }
-    }
+function renderHud(): void {
+  if (screen === 'menu') {
+    hudText.innerHTML = `
+      <span><strong>Mode:</strong> MENU</span>
+      <span><strong>Pick:</strong> Easy, Medium, or Hard</span>
+      <span><strong>Tip:</strong> Hard adds pixel-fire hazards</span>
+      <span><strong>Controls:</strong> 1/2/3, Enter, Arrow keys</span>
+    `;
+    return;
   }
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-  ctx.lineWidth = 1;
-  for (let gx = 1; gx < BOARD_WIDTH; gx += 1) {
-    const lineX = x + gx * cell;
-    ctx.beginPath();
-    ctx.moveTo(lineX, y);
-    ctx.lineTo(lineX, y + height);
-    ctx.stroke();
+  if (!state) {
+    hudText.innerHTML = '';
+    return;
   }
-  for (let gy = 1; gy < BOARD_HEIGHT; gy += 1) {
-    const lineY = y + gy * cell;
-    ctx.beginPath();
-    ctx.moveTo(x, lineY);
-    ctx.lineTo(x + width, lineY);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = '#f76f6f';
-  const foodX = x + state.food.x * cell + cell / 2;
-  const foodY = y + state.food.y * cell + cell / 2;
-  ctx.beginPath();
-  ctx.arc(foodX, foodY, cell * (0.24 + pulse * 0.08), 0, Math.PI * 2);
-  ctx.fill();
-
-  state.fireTiles.forEach((tile, idx) => {
-    const fireX = x + tile.x * cell;
-    const fireY = y + tile.y * cell;
-    const glow = (Math.sin((state.tickCount + idx) * 0.45) + 1) / 2;
-
-    ctx.fillStyle = '#4d1808';
-    ctx.fillRect(fireX + 1, fireY + 1, cell - 2, cell - 2);
-
-    ctx.fillStyle = `rgba(255, 120, 40, ${0.65 + glow * 0.25})`;
-    ctx.fillRect(fireX + 2, fireY + cell * 0.45, cell - 4, cell * 0.5 - 2);
-
-    ctx.fillStyle = `rgba(255, 205, 65, ${0.5 + glow * 0.4})`;
-    ctx.fillRect(fireX + cell * 0.28, fireY + cell * 0.2, cell * 0.44, cell * 0.45);
-  });
-
-  state.snake.forEach((segment, index) => {
-    const segmentX = x + segment.x * cell;
-    const segmentY = y + segment.y * cell;
-    ctx.fillStyle = index === 0 ? '#99f6a4' : '#54b76e';
-    ctx.fillRect(segmentX + 1, segmentY + 1, cell - 2, cell - 2);
-  });
-
-  if (state.mode !== 'running') {
-    ctx.fillStyle = 'rgba(5, 8, 15, 0.68)';
-    ctx.fillRect(x, y, width, height);
-    ctx.fillStyle = '#f6f8ff';
-    ctx.textAlign = 'center';
-    ctx.font = '700 28px "American Typewriter", "Trebuchet MS", serif';
-
-    const modeText =
-      state.mode === 'ready'
-        ? 'Press an Arrow Key or WASD to Begin'
-        : state.mode === 'paused'
-          ? 'Paused - Press P to Resume'
-          : 'Game Over - Press R to Restart';
-
-    ctx.fillText(modeText, x + width / 2, y + height / 2 - 8);
-    ctx.font = '500 16px "Trebuchet MS", sans-serif';
-    ctx.fillText('Eat food, avoid walls, and survive each arena collapse.', x + width / 2, y + height / 2 + 26);
-  }
-}
-
-function render(): void {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  fillBackground(width, height);
-  drawBoard();
 
   const modeLabel = state.mode.replace('_', ' ').toUpperCase();
   hudText.innerHTML = `
@@ -265,16 +216,36 @@ function render(): void {
     <span><strong>Best:</strong> ${state.bestScore}</span>
     <span><strong>Shrink:</strong> ${state.shrinkLevel}</span>
     <span style="color:${colorForMode(state.mode)}"><strong>Mode:</strong> ${modeLabel}</span>
-    <span><strong>Controls:</strong> Move Arrows/WASD, Pause P, Reset R, Fullscreen F</span>
+    <span><strong>Controls:</strong> Move Arrows/WASD, Pause P, Reset R, Menu M, Fullscreen F</span>
   `;
 }
 
+function render(): void {
+  renderFrame({
+    canvas,
+    ctx,
+    screen,
+    game: state,
+    menuAnimationMs,
+    selectedDifficulty
+  });
+  renderHud();
+}
+
 function stepOneTick(): void {
+  if (!state) {
+    return;
+  }
   state = stepGame(state);
 }
 
 function runSimulation(deltaMs: number): void {
-  if (state.mode !== 'running') {
+  if (screen === 'menu') {
+    menuAnimationMs += deltaMs;
+    return;
+  }
+
+  if (!state || state.mode !== 'running') {
     return;
   }
 
@@ -282,34 +253,26 @@ function runSimulation(deltaMs: number): void {
   accumulator = Math.min(accumulator + deltaMs, MAX_ACCUMULATOR_MS);
 
   const tickMs = currentTickMs();
-
   while (accumulator >= tickMs) {
     stepOneTick();
     accumulator -= tickMs;
-    if (state.mode !== 'running') {
+
+    if (!state || state.mode !== 'running') {
       accumulator = 0;
       break;
     }
   }
 }
 
-function ensurePlayableStateForDirectionInput(): void {
-  if (state.mode === 'game_over') {
-    state = resetGame(state.bestScore, state.difficulty);
-  }
-  if (state.mode === 'ready') {
-    state = {
-      ...state,
-      mode: 'running'
-    };
-  }
-}
-
 function togglePause(): void {
+  if (!state) {
+    return;
+  }
+
   if (state.mode === 'running') {
-    state = { ...state, mode: 'paused' };
+    state = { ...state, mode: 'paused', screen: 'paused' };
   } else if (state.mode === 'paused') {
-    state = { ...state, mode: 'running' };
+    state = { ...state, mode: 'running', screen: 'playing' };
   }
 }
 
@@ -322,45 +285,130 @@ async function toggleFullscreen(): Promise<void> {
   await app.requestFullscreen();
 }
 
-function handleKeyDown(event: KeyboardEvent): void {
-  const direction = directionFromKey(event.key);
-  if (direction) {
+function handleMenuKey(event: KeyboardEvent): boolean {
+  if (event.key === '1') {
     event.preventDefault();
-    ensurePlayableStateForDirectionInput();
+    startGame('easy');
+    return true;
+  }
+
+  if (event.key === '2') {
+    event.preventDefault();
+    startGame('medium');
+    return true;
+  }
+
+  if (event.key === '3') {
+    event.preventDefault();
+    startGame('hard');
+    return true;
+  }
+
+  if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+    event.preventDefault();
+    cycleDifficulty(-1);
+    return true;
+  }
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+    event.preventDefault();
+    cycleDifficulty(1);
+    return true;
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    startGame(selectedDifficulty);
+    return true;
+  }
+
+  return false;
+}
+
+function handleGameKey(event: KeyboardEvent): boolean {
+  if (!state) {
+    return false;
+  }
+
+  const direction = directionFromKey(event.key);
+  if (direction && state.mode === 'running') {
+    event.preventDefault();
     state = changeDirection(state, direction);
-    return;
+    return true;
   }
 
   if (event.key === 'p' || event.key === 'P') {
     event.preventDefault();
     togglePause();
-    return;
+    return true;
   }
 
   if (event.key === 'r' || event.key === 'R') {
     event.preventDefault();
-    state = resetGame(state.bestScore, state.difficulty);
+    state = resetGame(state.bestScore, state.difficulty, createSeed());
+    state = { ...state, mode: 'running', screen: 'playing' };
     accumulator = 0;
-    return;
+    return true;
+  }
+
+  if (event.key === 'm' || event.key === 'M') {
+    event.preventDefault();
+    showMenu();
+    return true;
   }
 
   if (event.key === 'f' || event.key === 'F') {
     event.preventDefault();
     void toggleFullscreen();
+    return true;
+  }
+
+  return false;
+}
+
+function handleKeyDown(event: KeyboardEvent): void {
+  if (screen === 'menu') {
+    if (handleMenuKey(event)) {
+      return;
+    }
+  }
+
+  if (screen !== 'menu') {
+    handleGameKey(event);
   }
 }
 
+menuButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const difficulty = button.dataset.difficulty as DifficultyId;
+    if (!difficulty) {
+      return;
+    }
+    startGame(difficulty);
+  });
+});
+
 window.render_game_to_text = () => {
+  if (screen === 'menu' || !state) {
+    return JSON.stringify({
+      coordinateSystem: 'origin at top-left, x increases right, y increases down, units are grid cells',
+      screen,
+      selectedDifficulty,
+      menuAnimationMs
+    });
+  }
+
   return JSON.stringify({
     coordinateSystem: 'origin at top-left, x increases right, y increases down, units are grid cells',
+    screen,
     mode: state.mode,
+    difficulty: state.difficulty,
     score: state.score,
     bestScore: state.bestScore,
+    foodsEaten: state.foodsEaten,
+    elapsedMs: state.elapsedMs,
     shrinkLevel: state.shrinkLevel,
     tickCount: state.tickCount,
-    difficulty: state.difficulty,
-    elapsedMs: state.elapsedMs,
-    foodsEaten: state.foodsEaten,
     bounds: state.bounds,
     direction: state.direction,
     queuedDirection: state.queuedDirection,
@@ -371,15 +419,28 @@ window.render_game_to_text = () => {
 };
 
 window.advanceTime = (ms: number) => {
+  if (screen === 'menu') {
+    menuAnimationMs += ms;
+    render();
+    return;
+  }
+
+  if (!state) {
+    render();
+    return;
+  }
+
   const tickMs = currentTickMs();
   const steps = Math.max(1, Math.round(ms / tickMs));
+
   for (let i = 0; i < steps; i += 1) {
     if (state.mode !== 'running') {
       break;
     }
     state = advanceElapsed(state, tickMs);
-    stepOneTick();
+    state = stepGame(state);
   }
+
   render();
 };
 
@@ -402,6 +463,7 @@ document.addEventListener('fullscreenchange', () => {
   render();
 });
 
+syncMenuUi();
 resizeCanvas();
 render();
 window.requestAnimationFrame(frame);

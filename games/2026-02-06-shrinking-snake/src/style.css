@@ -47,12 +47,62 @@ body {
   font-size: 0.95rem;
 }
 
+.menu-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(20, 31, 57, 0.72);
+  border: 1px solid rgba(131, 164, 220, 0.25);
+}
+
+.menu-label {
+  margin: 0;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9fb8e5;
+}
+
+.menu-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.menu-buttons button {
+  appearance: none;
+  border: 1px solid rgba(144, 176, 232, 0.35);
+  background: rgba(22, 36, 63, 0.85);
+  color: #dce8ff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-buttons button:hover {
+  border-color: rgba(183, 207, 250, 0.75);
+}
+
+.menu-buttons button.is-selected {
+  background: linear-gradient(135deg, #2f5ea8, #3e78ce);
+  border-color: rgba(201, 221, 255, 0.9);
+  color: #ffffff;
+}
+
+.menu-help {
+  margin: 0;
+  color: #b8c8eb;
+  font-size: 0.84rem;
+}
+
 #game-canvas {
   width: 100%;
   border-radius: 8px;
   border: 1px solid rgba(175, 205, 255, 0.35);
   box-shadow: 0 12px 30px rgba(3, 7, 16, 0.5);
-  image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .hud {
@@ -83,5 +133,9 @@ body {
 
   .hud {
     font-size: 0.83rem;
+  }
+
+  .menu-buttons button {
+    flex: 1 1 auto;
   }
 }
