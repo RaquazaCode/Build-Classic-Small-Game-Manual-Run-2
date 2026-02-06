@@ -1,58 +1,87 @@
-# Shrinking Snake (2026-02-06)
+# Build Classic Small Game - Manual Run 2
 
-A browser Snake game with a retro menu, three difficulty tiers, dynamic hazards, survival scoring, and procedural 8-bit audio.
+<p align="center">
+  <strong>Shrinking Snake</strong><br/>
+  A retro-style browser arcade game with difficulty modes, collapsing arena pressure, pixel-fire hazards, survival scoring, and procedural 8-bit music.
+</p>
 
-## Features
-- Animated home screen with giant 8-bit snake scene.
-- Difficulty presets: `Easy`, `Medium`, `Hard`.
-- Seeded deterministic food and hazard placement per run.
-- Hard-mode static pixel-fire hazards.
-- Stopwatch-based survival scoring plus food bonus.
-- Local top-10 leaderboard persisted in browser storage.
-- Procedural chiptune music for menu and gameplay.
+<p align="center">
+  <img alt="Menu screen" src="assets/screenshots/menu.png" width="760" />
+</p>
 
-## Setup
-```bash
-cd games/2026-02-06-shrinking-snake
-npm install
-```
+## GIF Captures
+### Menu Animation (8-bit hero snake)
+<p align="center">
+  <img alt="Menu animation" src="assets/gifs/menu-animation.gif" width="760" />
+</p>
 
-## Run
-```bash
-npm run dev
-```
-Open the Vite URL shown in terminal (default: `http://localhost:5173`).
+### Difficulty Selection Flow
+<p align="center">
+  <img alt="Difficulty selection animation" src="assets/gifs/difficulty-select.gif" width="760" />
+</p>
 
-## Controls
-### Menu
-- Choose difficulty: `1 / 2 / 3` or Arrow keys + `Enter`
+### Easy Mode Mid-Game
+<p align="center">
+  <img alt="Easy mode gameplay gif" src="assets/gifs/easy-midgame.gif" width="760" />
+</p>
 
-### In Game
-- Move: `Arrow Keys` or `WASD`
-- Pause/Resume: `P`
-- Restart run: `R`
-- Return to menu: `M`
-- Fullscreen toggle: `F`
+### Hard Mode Mid-Game
+<p align="center">
+  <img alt="Hard mode gameplay gif" src="assets/gifs/hard-midgame.gif" width="760" />
+</p>
+
+## What This Repo Contains
+- A standalone Vite + TypeScript browser game:
+  - `games/2026-02-06-shrinking-snake`
+- Deterministic game logic + unit tests
+- Difficulty system (`Easy`, `Medium`, `Hard`)
+- Local leaderboard persistence
+- Procedural chiptune audio (menu + gameplay + game-over sting)
+
+## Gameplay At A Glance
+<p align="center">
+  <img alt="Gameplay medium" src="assets/screenshots/gameplay-medium.png" width="380" />
+  <img alt="Gameplay hard" src="assets/screenshots/gameplay-hard.png" width="380" />
+</p>
+
+### Core Loop
+1. Pick a difficulty from the menu.
+2. Collect food to grow and increase score.
+3. Survive shrinking bounds (where applicable) and avoid collisions.
+4. In Hard mode, avoid pixel-fire hazard tiles.
+5. Push your survival score and beat your local top-10.
 
 ## Difficulty Rules
 - **Easy**
   - Tick speed: `130ms`
   - No arena shrink
-  - Food keeps at least 2 tiles from active walls when possible
+  - Food stays at least 2 tiles away from active walls when possible
   - No fire hazards
 - **Medium**
   - Tick speed: `110ms`
-  - Arena shrinks every 25 progression points
-  - Food keeps at least 1 tile from active walls when possible
+  - Arena shrinks every `25` progression points
+  - Food stays at least 1 tile away from active walls when possible
   - No fire hazards
 - **Hard**
   - Tick speed: `90ms`
-  - Arena shrinks every 15 progression points
-  - Food may spawn directly on walls
-  - Pixel-fire hazards active and refresh after food pickups
+  - Arena shrinks every `15` progression points
+  - Food can spawn on wall-adjacent tiles
+  - Pixel-fire hazards enabled and refreshed on food pickup
+
+## Controls
+### Menu
+- Select difficulty: `1 / 2 / 3`
+- Or cycle with arrow keys and press `Enter`
+
+### In Game
+- Move: `Arrow Keys` or `WASD`
+- Pause/Resume: `P`
+- Restart run: `R`
+- Back to menu: `M`
+- Fullscreen: `F`
 
 ## Scoring
-Real-time score uses a survival-dominant formula:
+Score updates in real time from:
 
 `score = round((elapsedSeconds * 100 + foodsEaten * 50) * difficultyMultiplier)`
 
@@ -61,23 +90,46 @@ Difficulty multipliers:
 - Medium: `1.25`
 - Hard: `1.5`
 
-## Persistence
-Leaderboard is stored in localStorage under key:
+## Local Persistence
+Leaderboard is stored in browser local storage under:
 - `shrinking-snake-v1-leaderboard`
 
-Each entry includes:
-- score
-- elapsedSeconds
-- foodsEaten
-- difficulty
-- date
-- seed
+Stored fields per entry:
+- `score`
+- `elapsedSeconds`
+- `foodsEaten`
+- `difficulty`
+- `date`
+- `seed`
 
-## Verification Performed
-- `npm test -- --run`
-- `npm run build`
-- Automated browser play-check via Playwright client with screenshot/state capture.
+## Run Locally
+```bash
+cd games/2026-02-06-shrinking-snake
+npm install
+npm run dev
+```
+Open the printed local URL (typically `http://localhost:5173`).
 
-## Known Limitations
-- Audio playback depends on user interaction because of browser autoplay policy.
-- Leaderboard is local-only (no backend sync).
+## Test and Build
+```bash
+cd games/2026-02-06-shrinking-snake
+npm test -- --run
+npm run build
+```
+
+## Project Layout
+```text
+games/2026-02-06-shrinking-snake/
+  src/
+    main.ts          # runtime, input, state orchestration
+    render.ts        # canvas drawing (menu + board)
+    logic.ts         # deterministic game engine
+    audio.ts         # procedural music/sfx controller
+    storage.ts       # local leaderboard persistence
+    scoring.ts       # score formula
+    *.test.ts        # unit tests
+```
+
+## Notes
+- Music requires user interaction before browsers allow playback.
+- Leaderboard is local-only by design (no backend).
