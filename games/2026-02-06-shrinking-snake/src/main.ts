@@ -149,6 +149,7 @@ function recordGameOverResult(gameState: GameState): void {
 }
 
 function startGame(difficulty: DifficultyId): void {
+  void audio.prime();
   selectedDifficulty = difficulty;
   const seed = createSeed();
   state = createInitialState(difficulty, seed, getCurrentBestScore());
@@ -165,6 +166,7 @@ function startGame(difficulty: DifficultyId): void {
 }
 
 function showMenu(): void {
+  void audio.prime();
   screen = 'menu';
   if (state) {
     state = {
@@ -321,6 +323,7 @@ async function toggleFullscreen(): Promise<void> {
 }
 
 function handleMenuKey(event: KeyboardEvent): boolean {
+  void audio.prime();
   void audio.startMenuMusic();
 
   if (event.key === '1') {
@@ -423,6 +426,7 @@ menuButtons.forEach((button) => {
     if (!difficulty) {
       return;
     }
+    void audio.prime();
     void audio.startMenuMusic();
     startGame(difficulty);
   });

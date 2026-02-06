@@ -16,8 +16,9 @@ function getAudioContextCtor(): typeof AudioContext | null {
 export function createAudioController(): AudioController {
   let context: AudioContext | null = null;
   let masterGain: GainNode | null = null;
-  let musicLoopId: number | null = null;
+  let musicLoopIds: number[] = [];
   let mode: MusicMode = 'idle';
+  let primed = false;
 
   async function ensureContext(): Promise<AudioContext | null> {
     const Ctor = getAudioContextCtor();
@@ -40,10 +41,10 @@ export function createAudioController(): AudioController {
   }
 
   function stopLoop(): void {
-    if (musicLoopId !== null) {
-      window.clearInterval(musicLoopId);
-      musicLoopId = null;
+    for (const loopId of musicLoopIds) {
+      window.clearInterval(loopId);
     }
+    musicLoopIds = [];
   }
 
   function fadeMaster(target: number, durationSec: number): void {
@@ -52,6 +53,7 @@ export function createAudioController(): AudioController {
     }
 
     masterGain.gain.cancelScheduledValues(context.currentTime);
+    masterGain.gain.setValueAtTime(masterGain.gain.value, context.currentTime);
     masterGain.gain.linearRampToValueAtTime(target, context.currentTime + durationSec);
   }
 
@@ -83,16 +85,17 @@ export function createAudioController(): AudioController {
     oscillator.stop(startTime + durationSec + 0.02);
   }
 
-  function schedulePattern(pattern: number[], stepMs: number, type: OscillatorType, gain: number): void {
+  function schedulePattern(pattern: number[], stepMs: number, type: OscillatorType, gain: number): number {
     if (!context) {
-      return;
+      return -1;
     }
 
     let index = 0;
     const initialTime = context.currentTime + 0.02;
     playTone(pattern[0] ?? 0, Math.max(0.06, stepMs / 1000 * 0.9), type, gain, initialTime);
+    index = 1;
 
-    musicLoopId = window.setInterval(() => {
+    return window.setInterval(() => {
       if (!context) {
         return;
       }
@@ -103,6 +106,22 @@ export function createAudioController(): AudioController {
     }, stepMs);
   }
 
+  function scheduleDualPattern(
+    melody: number[],
+    bass: number[],
+    stepMs: number
+  ): void {
+    const melodyLoop = schedulePattern(melody, stepMs, 'square', 0.17);
+    const bassLoop = schedulePattern(bass, stepMs * 2, 'triangle', 0.12);
+
+    if (melodyLoop !== -1) {
+      musicLoopIds.push(melodyLoop);
+    }
+    if (bassLoop !== -1) {
+      musicLoopIds.push(bassLoop);
+    }
+  }
+
   async function startMenuMusic(): Promise<void> {
     const activeContext = await ensureContext();
     if (!activeContext || mode === 'menu') {
@@ -110,8 +129,12 @@ export function createAudioController(): AudioController {
     }
 
     stopLoop();
-    fadeMaster(0.085, 0.2);
-    schedulePattern([220, 247, 262, 0, 294, 262, 247, 0], 260, 'square', 0.06);
+    fadeMaster(0.28, 0.16);
+    scheduleDualPattern(
+      [330, 392, 440, 392, 523, 440, 392, 349],
+      [165, 196, 220, 196]
+      ,220
+    );
     mode = 'menu';
   }
 
@@ -122,8 +145,12 @@ export function createAudioController(): AudioController {
     }
 
     stopLoop();
-    fadeMaster(0.09, 0.12);
-    schedulePattern([262, 330, 392, 330, 440, 392, 523, 392], 150, 'square', 0.065);
+    fadeMaster(0.33, 0.08);
+    scheduleDualPattern(
+      [392, 494, 523, 587, 659, 587, 523, 494, 440, 523, 587, 523, 494, 440, 392, 330],
+      [196, 220, 247, 220, 196, 165, 147, 165],
+      130
+    );
     mode = 'game';
   }
 
@@ -137,13 +164,13 @@ export function createAudioController(): AudioController {
     mode = 'idle';
 
     const now = activeContext.currentTime + 0.01;
-    fadeMaster(0.095, 0.08);
-    playTone(330, 0.18, 'square', 0.09, now);
-    playTone(247, 0.22, 'square', 0.09, now + 0.18);
-    playTone(196, 0.28, 'triangle', 0.08, now + 0.34);
+    fadeMaster(0.34, 0.06);
+    playTone(392, 0.15, 'square', 0.2, now);
+    playTone(294, 0.2, 'square', 0.2, now + 0.15);
+    playTone(220, 0.28, 'triangle', 0.16, now + 0.34);
 
     window.setTimeout(() => {
-      fadeMaster(0.05, 0.35);
+      fadeMaster(0, 0.45);
     }, 420);
   }
 
@@ -155,7 +182,14 @@ export function createAudioController(): AudioController {
 
   return {
     prime: async () => {
-      await ensureContext();
+      const activeContext = await ensureContext();
+      if (!activeContext || primed || !masterGain) {
+        return;
+      }
+
+      const start = activeContext.currentTime + 0.01;
+      playTone(440, 0.02, 'square', 0.0003, start);
+      primed = true;
     },
     startMenuMusic,
     startGameMusic,
