@@ -377,7 +377,15 @@ export function stepGame(state: GameState): GameState {
     const targetShrinkLevel = Math.floor(nextFoodPoints / difficultyConfig.shrinkEveryPoints);
 
     while (nextShrinkLevel < targetShrinkLevel && canShrink(nextBounds)) {
-      nextBounds = shrinkBounds(nextBounds);
+      const candidateBounds = shrinkBounds(nextBounds);
+
+      // Fairness guard: do not collapse the arena onto the snake on the same
+      // tick as a food pickup. Defer shrink until a later pickup.
+      if (!nextSnake.every((segment) => inBounds(segment, candidateBounds))) {
+        break;
+      }
+
+      nextBounds = candidateBounds;
       nextShrinkLevel += 1;
     }
   }

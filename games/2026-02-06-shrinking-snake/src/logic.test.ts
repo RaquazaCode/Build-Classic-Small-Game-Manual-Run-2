@@ -250,4 +250,33 @@ describe('difficulty-aware deterministic engine', () => {
       maxY: 16
     });
   });
+
+  test('shrink is skipped when it would collapse onto snake head right after food pickup', () => {
+    const state = runningState({
+      difficulty: 'hard',
+      foodPoints: 14,
+      snake: [
+        { x: 22, y: 5 },
+        { x: 21, y: 5 },
+        { x: 20, y: 5 }
+      ],
+      direction: 'right',
+      queuedDirection: 'right',
+      food: { x: 23, y: 5 },
+      bounds: {
+        minX: 0,
+        maxX: 23,
+        minY: 0,
+        maxY: 17
+      },
+      fireTiles: []
+    });
+
+    const next = stepGame(state);
+
+    expect(next.mode).toBe('running');
+    expect(next.shrinkLevel).toBe(0);
+    expect(next.bounds).toEqual(state.bounds);
+    expect(next.snake[0]).toEqual({ x: 23, y: 5 });
+  });
 });
