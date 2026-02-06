@@ -94,7 +94,8 @@ describe('difficulty-aware deterministic engine', () => {
       ],
       direction: 'right',
       queuedDirection: 'right',
-      food: { x: 2, y: 1 }
+      food: { x: 2, y: 1 },
+      fireTiles: []
     });
 
     const next = stepGame(state);
@@ -158,6 +159,66 @@ describe('difficulty-aware deterministic engine', () => {
     });
   });
 
+  test('hard mode initializes fire tiles without overlapping snake or food', () => {
+    const state = createInitialState('hard', 77);
+
+    expect(state.fireTiles.length).toBeGreaterThan(0);
+    state.fireTiles.forEach((tile) => {
+      const overlapsSnake = state.snake.some((segment) => segment.x === tile.x && segment.y === tile.y);
+      const overlapsFood = state.food.x === tile.x && state.food.y === tile.y;
+      expect(overlapsSnake).toBe(false);
+      expect(overlapsFood).toBe(false);
+    });
+  });
+
+  test('collision with fire tile ends the run', () => {
+    const state = runningState({
+      difficulty: 'hard',
+      snake: [
+        { x: 5, y: 5 },
+        { x: 4, y: 5 },
+        { x: 3, y: 5 }
+      ],
+      direction: 'right',
+      queuedDirection: 'right',
+      food: { x: 10, y: 10 },
+      fireTiles: [{ x: 6, y: 5 }]
+    });
+
+    const next = stepGame(state);
+    expect(next.mode).toBe('game_over');
+  });
+
+  test('hard mode refreshes fire tiles when food is eaten', () => {
+    const state = runningState({
+      difficulty: 'hard',
+      snake: [
+        { x: 5, y: 5 },
+        { x: 4, y: 5 },
+        { x: 3, y: 5 }
+      ],
+      direction: 'right',
+      queuedDirection: 'right',
+      food: { x: 6, y: 5 },
+      fireTiles: [
+        { x: 0, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: 2 },
+        { x: 0, y: 3 }
+      ]
+    });
+
+    const next = stepGame(state);
+
+    expect(next.fireTiles).not.toEqual(state.fireTiles);
+    next.fireTiles.forEach((tile) => {
+      const overlapsSnake = next.snake.some((segment) => segment.x === tile.x && segment.y === tile.y);
+      const overlapsFood = next.food.x === tile.x && next.food.y === tile.y;
+      expect(overlapsSnake).toBe(false);
+      expect(overlapsFood).toBe(false);
+    });
+  });
+
   test('hard mode shrinks more aggressively', () => {
     const state = runningState({
       difficulty: 'hard',
@@ -175,7 +236,8 @@ describe('difficulty-aware deterministic engine', () => {
         maxX: 23,
         minY: 0,
         maxY: 17
-      }
+      },
+      fireTiles: []
     });
 
     const next = stepGame(state);

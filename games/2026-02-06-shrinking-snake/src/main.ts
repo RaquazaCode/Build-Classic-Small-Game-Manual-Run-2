@@ -1,6 +1,6 @@
 import './style.css';
 import { BOARD_HEIGHT, BOARD_WIDTH, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS } from './constants';
-import { changeDirection, createInitialState, resetGame, stepGame } from './logic';
+import { advanceElapsed, changeDirection, createInitialState, resetGame, stepGame } from './logic';
 import type { Direction, GameMode, GameState } from './types';
 
 declare global {
@@ -90,6 +90,13 @@ function directionFromKey(key: string): Direction | null {
     default:
       return null;
   }
+}
+
+function formatDuration(totalMs: number): string {
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function resizeCanvas(): void {
@@ -201,6 +208,21 @@ function drawBoard(): void {
   ctx.arc(foodX, foodY, cell * (0.24 + pulse * 0.08), 0, Math.PI * 2);
   ctx.fill();
 
+  state.fireTiles.forEach((tile, idx) => {
+    const fireX = x + tile.x * cell;
+    const fireY = y + tile.y * cell;
+    const glow = (Math.sin((state.tickCount + idx) * 0.45) + 1) / 2;
+
+    ctx.fillStyle = '#4d1808';
+    ctx.fillRect(fireX + 1, fireY + 1, cell - 2, cell - 2);
+
+    ctx.fillStyle = `rgba(255, 120, 40, ${0.65 + glow * 0.25})`;
+    ctx.fillRect(fireX + 2, fireY + cell * 0.45, cell - 4, cell * 0.5 - 2);
+
+    ctx.fillStyle = `rgba(255, 205, 65, ${0.5 + glow * 0.4})`;
+    ctx.fillRect(fireX + cell * 0.28, fireY + cell * 0.2, cell * 0.44, cell * 0.45);
+  });
+
   state.snake.forEach((segment, index) => {
     const segmentX = x + segment.x * cell;
     const segmentY = y + segment.y * cell;
@@ -236,6 +258,9 @@ function render(): void {
 
   const modeLabel = state.mode.replace('_', ' ').toUpperCase();
   hudText.innerHTML = `
+    <span><strong>Difficulty:</strong> ${state.difficulty.toUpperCase()}</span>
+    <span><strong>Time:</strong> ${formatDuration(state.elapsedMs)}</span>
+    <span><strong>Foods:</strong> ${state.foodsEaten}</span>
     <span><strong>Score:</strong> ${state.score}</span>
     <span><strong>Best:</strong> ${state.bestScore}</span>
     <span><strong>Shrink:</strong> ${state.shrinkLevel}</span>
@@ -253,6 +278,7 @@ function runSimulation(deltaMs: number): void {
     return;
   }
 
+  state = advanceElapsed(state, deltaMs);
   accumulator = Math.min(accumulator + deltaMs, MAX_ACCUMULATOR_MS);
 
   const tickMs = currentTickMs();
@@ -332,11 +358,15 @@ window.render_game_to_text = () => {
     bestScore: state.bestScore,
     shrinkLevel: state.shrinkLevel,
     tickCount: state.tickCount,
+    difficulty: state.difficulty,
+    elapsedMs: state.elapsedMs,
+    foodsEaten: state.foodsEaten,
     bounds: state.bounds,
     direction: state.direction,
     queuedDirection: state.queuedDirection,
     snake: state.snake,
-    food: state.food
+    food: state.food,
+    fireTiles: state.fireTiles
   });
 };
 
@@ -347,6 +377,7 @@ window.advanceTime = (ms: number) => {
     if (state.mode !== 'running') {
       break;
     }
+    state = advanceElapsed(state, tickMs);
     stepOneTick();
   }
   render();

@@ -1,5 +1,13 @@
-import { BOARD_HEIGHT, BOARD_WIDTH, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS, FOOD_POINTS } from './constants';
+import {
+  BOARD_HEIGHT,
+  BOARD_WIDTH,
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY_CONFIGS,
+  FOOD_POINTS,
+  MAX_FIRE_TILES
+} from './constants';
 import { createSeed, nextRandom } from './rng';
+import { computeScore } from './scoring';
 import type {
   Bounds,
   DifficultyConfig,
@@ -127,6 +135,81 @@ function spawnFood(
   return { point: null, rngState };
 }
 
+function getFireTileCount(config: DifficultyConfig, shrinkLevel: number): number {
+  if (config.fireTileCount <= 0) {
+    return 0;
+  }
+
+  return Math.min(MAX_FIRE_TILES, config.fireTileCount + Math.floor(shrinkLevel / 2));
+}
+
+function areSameTileSet(a: Point[], b: Point[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  const setA = new Set(a.map(pointKey));
+  const setB = new Set(b.map(pointKey));
+
+  if (setA.size !== setB.size) {
+    return false;
+  }
+
+  for (const key of setA) {
+    if (!setB.has(key)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function spawnFireTiles(
+  snake: Point[],
+  food: Point,
+  bounds: Bounds,
+  desiredCount: number,
+  rngState: number,
+  preferDifferentFrom: Point[] = []
+): { tiles: Point[]; rngState: number } {
+  if (desiredCount <= 0) {
+    return { tiles: [], rngState };
+  }
+
+  const hardCap = Math.min(MAX_FIRE_TILES, desiredCount);
+  const occupiedBase = new Set<string>([pointKey(food)]);
+  snake.forEach((segment) => occupiedBase.add(pointKey(segment)));
+
+  const occupiedPreferred = new Set<string>(occupiedBase);
+  preferDifferentFrom.forEach((tile) => occupiedPreferred.add(pointKey(tile)));
+
+  let candidates = getSpawnCandidates(bounds, occupiedPreferred, 0);
+  if (candidates.length < hardCap) {
+    candidates = getSpawnCandidates(bounds, occupiedBase, 0);
+  }
+
+  const selected: Point[] = [];
+  let working = candidates.slice();
+  let nextState = rngState;
+
+  while (selected.length < hardCap && working.length > 0) {
+    const step = nextRandom(nextState);
+    nextState = step.state;
+
+    const index = Math.min(working.length - 1, Math.floor(step.value * working.length));
+    const [tile] = working.splice(index, 1);
+
+    if (tile) {
+      selected.push(tile);
+    }
+  }
+
+  return {
+    tiles: selected,
+    rngState: nextState
+  };
+}
+
 function withGameOver(state: GameState): GameState {
   return {
     ...state,
@@ -163,19 +246,37 @@ export function createInitialState(
     maxY: BOARD_HEIGHT - 1
   };
 
-  const spawn = spawnFood(snake, bounds, [], config.foodWallMargin, normalizedSeed);
+  const foodSpawn = spawnFood(snake, bounds, [], config.foodWallMargin, normalizedSeed);
+  let food = foodSpawn.point ?? { x: centerX, y: centerY - 1 };
+  let rngState = foodSpawn.rngState;
+  let fireTiles: Point[] = [];
+
+  const fireCount = getFireTileCount(config, 0);
+  if (fireCount > 0) {
+    const fireSpawn = spawnFireTiles(snake, food, bounds, fireCount, rngState);
+    fireTiles = fireSpawn.tiles;
+    rngState = fireSpawn.rngState;
+
+    if (fireTiles.some((tile) => pointsEqual(tile, food))) {
+      const recoverySpawn = spawnFood(snake, bounds, fireTiles, config.foodWallMargin, rngState);
+      if (recoverySpawn.point) {
+        food = recoverySpawn.point;
+        rngState = recoverySpawn.rngState;
+      }
+    }
+  }
 
   return {
     mode: 'ready',
     screen: 'playing',
     difficulty,
     seed: normalizedSeed,
-    rngState: spawn.rngState,
+    rngState,
     snake,
     direction: 'right',
     queuedDirection: 'right',
-    food: spawn.point ?? { x: centerX, y: centerY - 1 },
-    fireTiles: [],
+    food,
+    fireTiles,
     score: 0,
     bestScore,
     foodsEaten: 0,
@@ -199,6 +300,24 @@ export function changeDirection(state: GameState, nextDirection: Direction): Gam
   return {
     ...state,
     queuedDirection: nextDirection
+  };
+}
+
+export function advanceElapsed(state: GameState, deltaMs: number): GameState {
+  if (state.mode !== 'running') {
+    return state;
+  }
+
+  const difficultyConfig = getDifficultyConfig(state.difficulty);
+  const nextElapsedMs = state.elapsedMs + Math.max(0, Math.floor(deltaMs));
+  const elapsedSeconds = Math.floor(nextElapsedMs / 1000);
+  const nextScore = computeScore(state.foodsEaten, elapsedSeconds, difficultyConfig.scoreMultiplier);
+
+  return {
+    ...state,
+    elapsedMs: nextElapsedMs,
+    score: nextScore,
+    bestScore: Math.max(state.bestScore, nextScore)
   };
 }
 
@@ -248,7 +367,8 @@ export function stepGame(state: GameState): GameState {
 
   const nextFoodsEaten = eatsFood ? state.foodsEaten + 1 : state.foodsEaten;
   const nextFoodPoints = eatsFood ? state.foodPoints + FOOD_POINTS : state.foodPoints;
-  const nextScore = nextFoodsEaten * FOOD_POINTS;
+  const elapsedSeconds = Math.floor(state.elapsedMs / 1000);
+  const nextScore = computeScore(nextFoodsEaten, elapsedSeconds, difficultyConfig.scoreMultiplier);
 
   let nextBounds = state.bounds;
   let nextShrinkLevel = state.shrinkLevel;
@@ -278,17 +398,18 @@ export function stepGame(state: GameState): GameState {
 
   let nextFood = state.food;
   let nextRngState = state.rngState;
+  let nextFireTiles = difficultyConfig.fireTileCount > 0 ? state.fireTiles : [];
 
   if (eatsFood) {
-    const spawn = spawnFood(
+    const foodSpawn = spawnFood(
       nextSnake,
       nextBounds,
       state.fireTiles,
       difficultyConfig.foodWallMargin,
-      state.rngState
+      nextRngState
     );
 
-    if (!spawn.point) {
+    if (!foodSpawn.point) {
       return withGameOver({
         ...state,
         snake: nextSnake,
@@ -302,8 +423,35 @@ export function stepGame(state: GameState): GameState {
       });
     }
 
-    nextFood = spawn.point;
-    nextRngState = spawn.rngState;
+    nextFood = foodSpawn.point;
+    nextRngState = foodSpawn.rngState;
+
+    if (difficultyConfig.fireTileCount > 0) {
+      const fireSpawn = spawnFireTiles(
+        nextSnake,
+        nextFood,
+        nextBounds,
+        getFireTileCount(difficultyConfig, nextShrinkLevel),
+        nextRngState,
+        state.fireTiles
+      );
+
+      nextFireTiles = fireSpawn.tiles;
+      nextRngState = fireSpawn.rngState;
+
+      if (areSameTileSet(nextFireTiles, state.fireTiles)) {
+        const fallbackFireSpawn = spawnFireTiles(
+          nextSnake,
+          nextFood,
+          nextBounds,
+          getFireTileCount(difficultyConfig, nextShrinkLevel),
+          nextRngState
+        );
+
+        nextFireTiles = fallbackFireSpawn.tiles;
+        nextRngState = fallbackFireSpawn.rngState;
+      }
+    }
   }
 
   return {
@@ -311,6 +459,7 @@ export function stepGame(state: GameState): GameState {
     snake: nextSnake,
     direction: state.queuedDirection,
     food: nextFood,
+    fireTiles: nextFireTiles,
     rngState: nextRngState,
     score: nextScore,
     foodsEaten: nextFoodsEaten,
