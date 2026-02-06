@@ -1,9 +1,15 @@
 # Shrinking Snake (2026-02-06)
 
-A classic Snake-style browser game with one twist: the arena collapses inward as your score increases.
+A browser Snake game with a retro menu, three difficulty tiers, dynamic hazards, survival scoring, and procedural 8-bit audio.
 
-## Twist
-Every 30 points, the board shrinks by one full tile ring. Collapsed tiles become permanent deadly wall tiles.
+## Features
+- Animated home screen with giant 8-bit snake scene.
+- Difficulty presets: `Easy`, `Medium`, `Hard`.
+- Seeded deterministic food and hazard placement per run.
+- Hard-mode static pixel-fire hazards.
+- Stopwatch-based survival scoring plus food bonus.
+- Local top-10 leaderboard persisted in browser storage.
+- Procedural chiptune music for menu and gameplay.
 
 ## Setup
 ```bash
@@ -15,32 +21,63 @@ npm install
 ```bash
 npm run dev
 ```
-Then open the local Vite URL (default: `http://localhost:5173`).
+Open the Vite URL shown in terminal (default: `http://localhost:5173`).
 
 ## Controls
+### Menu
+- Choose difficulty: `1 / 2 / 3` or Arrow keys + `Enter`
+
+### In Game
 - Move: `Arrow Keys` or `WASD`
 - Pause/Resume: `P`
-- Restart: `R`
+- Restart run: `R`
+- Return to menu: `M`
 - Fullscreen toggle: `F`
 
-## Rules
-- Eat food to gain `+10` score and grow.
-- Avoid walls, collapsed boundary tiles, and your own body.
-- The game is an endless score attack; death ends the run.
+## Difficulty Rules
+- **Easy**
+  - Tick speed: `130ms`
+  - No arena shrink
+  - Food keeps at least 2 tiles from active walls when possible
+  - No fire hazards
+- **Medium**
+  - Tick speed: `110ms`
+  - Arena shrinks every 25 progression points
+  - Food keeps at least 1 tile from active walls when possible
+  - No fire hazards
+- **Hard**
+  - Tick speed: `90ms`
+  - Arena shrinks every 15 progression points
+  - Food may spawn directly on walls
+  - Pixel-fire hazards active and refresh after food pickups
+
+## Scoring
+Real-time score uses a survival-dominant formula:
+
+`score = round((elapsedSeconds * 100 + foodsEaten * 50) * difficultyMultiplier)`
+
+Difficulty multipliers:
+- Easy: `1.0`
+- Medium: `1.25`
+- Hard: `1.5`
+
+## Persistence
+Leaderboard is stored in localStorage under key:
+- `shrinking-snake-v1-leaderboard`
+
+Each entry includes:
+- score
+- elapsedSeconds
+- foodsEaten
+- difficulty
+- date
+- seed
 
 ## Verification Performed
 - `npm test -- --run`
 - `npm run build`
-- Automated browser play check via Playwright client script (`web_game_playwright_client.js`) with screenshot + `render_game_to_text` capture.
+- Automated browser play-check via Playwright client with screenshot/state capture.
 
-## Known Issues
-- Food spawn is deterministic (first available tile scan), so replay patterns are somewhat predictable.
-- No touch controls yet.
-- No audio feedback yet.
-
-## Next Steps
-- Add random-food spawn seeded per run.
-- Add on-screen settings for tick speed and shrink threshold.
-- Add touch swipe controls for mobile.
-- Add sound effects and mute toggle.
-- Add local leaderboard persistence.
+## Known Limitations
+- Audio playback depends on user interaction because of browser autoplay policy.
+- Leaderboard is local-only (no backend sync).
