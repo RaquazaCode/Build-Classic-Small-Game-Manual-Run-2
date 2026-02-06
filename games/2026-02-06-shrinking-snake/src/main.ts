@@ -1,8 +1,10 @@
 import './style.css';
 import { BOARD_HEIGHT, BOARD_WIDTH, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS } from './constants';
+import { createAudioController } from './audio';
 import { createSeed } from './rng';
 import { renderFrame } from './render';
 import { advanceElapsed, changeDirection, createInitialState, resetGame, stepGame } from './logic';
+import { loadLeaderboard, saveLeaderboardEntry } from './storage';
 import type { DifficultyId, Direction, GameMode, GameState, ScreenMode } from './types';
 
 declare global {
@@ -59,6 +61,7 @@ const hudText = requireElement<HTMLDivElement>('#hud-text');
 const menuPanel = requireElement<HTMLElement>('#menu-panel');
 const menuButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-difficulty]'));
 const ctx = require2dContext(canvas);
+const audio = createAudioController();
 
 let screen: ScreenMode = 'menu';
 let selectedDifficulty: DifficultyId = DEFAULT_DIFFICULTY;
@@ -66,6 +69,8 @@ let state: GameState | null = null;
 let accumulator = 0;
 let lastFrameTime = performance.now();
 let menuAnimationMs = 0;
+let leaderboard = loadLeaderboard();
+let gameOverPersisted = false;
 
 function currentTickMs(): number {
   if (state) {
@@ -120,7 +125,27 @@ function directionFromKey(key: string): Direction | null {
 }
 
 function getCurrentBestScore(): number {
-  return state?.bestScore ?? 0;
+  const localBest = leaderboard[0]?.score ?? 0;
+  const sessionBest = state?.bestScore ?? 0;
+  return Math.max(localBest, sessionBest);
+}
+
+function recordGameOverResult(gameState: GameState): void {
+  if (gameOverPersisted) {
+    return;
+  }
+
+  leaderboard = saveLeaderboardEntry({
+    score: gameState.score,
+    elapsedSeconds: Math.floor(gameState.elapsedMs / 1000),
+    foodsEaten: gameState.foodsEaten,
+    difficulty: gameState.difficulty,
+    date: new Date().toISOString(),
+    seed: gameState.seed
+  });
+
+  gameOverPersisted = true;
+  void audio.playGameOverSting();
 }
 
 function startGame(difficulty: DifficultyId): void {
@@ -134,7 +159,9 @@ function startGame(difficulty: DifficultyId): void {
   };
   screen = 'playing';
   accumulator = 0;
+  gameOverPersisted = false;
   syncMenuUi();
+  void audio.startGameMusic();
 }
 
 function showMenu(): void {
@@ -147,6 +174,7 @@ function showMenu(): void {
     };
   }
   syncMenuUi();
+  void audio.startMenuMusic();
 }
 
 function cycleDifficulty(offset: number): void {
@@ -193,10 +221,12 @@ function resizeCanvas(): void {
 
 function renderHud(): void {
   if (screen === 'menu') {
+    const top = leaderboard[0];
     hudText.innerHTML = `
       <span><strong>Mode:</strong> MENU</span>
       <span><strong>Pick:</strong> Easy, Medium, or Hard</span>
-      <span><strong>Tip:</strong> Hard adds pixel-fire hazards</span>
+      <span><strong>Top Score:</strong> ${top ? top.score : 0}</span>
+      <span><strong>Top Time:</strong> ${top ? `${top.elapsedSeconds}s` : '0s'}</span>
       <span><strong>Controls:</strong> 1/2/3, Enter, Arrow keys</span>
     `;
     return;
@@ -208,12 +238,13 @@ function renderHud(): void {
   }
 
   const modeLabel = state.mode.replace('_', ' ').toUpperCase();
+  const allTimeBest = Math.max(leaderboard[0]?.score ?? 0, state.bestScore);
   hudText.innerHTML = `
     <span><strong>Difficulty:</strong> ${state.difficulty.toUpperCase()}</span>
     <span><strong>Time:</strong> ${formatDuration(state.elapsedMs)}</span>
     <span><strong>Foods:</strong> ${state.foodsEaten}</span>
     <span><strong>Score:</strong> ${state.score}</span>
-    <span><strong>Best:</strong> ${state.bestScore}</span>
+    <span><strong>Best:</strong> ${allTimeBest}</span>
     <span><strong>Shrink:</strong> ${state.shrinkLevel}</span>
     <span style="color:${colorForMode(state.mode)}"><strong>Mode:</strong> ${modeLabel}</span>
     <span><strong>Controls:</strong> Move Arrows/WASD, Pause P, Reset R, Menu M, Fullscreen F</span>
@@ -262,6 +293,10 @@ function runSimulation(deltaMs: number): void {
       break;
     }
   }
+
+  if (state && state.mode === 'game_over') {
+    recordGameOverResult(state);
+  }
 }
 
 function togglePause(): void {
@@ -286,6 +321,8 @@ async function toggleFullscreen(): Promise<void> {
 }
 
 function handleMenuKey(event: KeyboardEvent): boolean {
+  void audio.startMenuMusic();
+
   if (event.key === '1') {
     event.preventDefault();
     startGame('easy');
@@ -348,6 +385,8 @@ function handleGameKey(event: KeyboardEvent): boolean {
     state = resetGame(state.bestScore, state.difficulty, createSeed());
     state = { ...state, mode: 'running', screen: 'playing' };
     accumulator = 0;
+    gameOverPersisted = false;
+    void audio.startGameMusic();
     return true;
   }
 
@@ -384,8 +423,16 @@ menuButtons.forEach((button) => {
     if (!difficulty) {
       return;
     }
+    void audio.startMenuMusic();
     startGame(difficulty);
   });
+});
+
+window.addEventListener('pointerdown', () => {
+  if (screen === 'menu') {
+    void audio.prime();
+    void audio.startMenuMusic();
+  }
 });
 
 window.render_game_to_text = () => {
@@ -394,7 +441,8 @@ window.render_game_to_text = () => {
       coordinateSystem: 'origin at top-left, x increases right, y increases down, units are grid cells',
       screen,
       selectedDifficulty,
-      menuAnimationMs
+      menuAnimationMs,
+      leaderboardTop: leaderboard[0] ?? null
     });
   }
 
@@ -414,7 +462,8 @@ window.render_game_to_text = () => {
     queuedDirection: state.queuedDirection,
     snake: state.snake,
     food: state.food,
-    fireTiles: state.fireTiles
+    fireTiles: state.fireTiles,
+    leaderboardTop: leaderboard[0] ?? null
   });
 };
 
@@ -439,6 +488,10 @@ window.advanceTime = (ms: number) => {
     }
     state = advanceElapsed(state, tickMs);
     state = stepGame(state);
+  }
+
+  if (state.mode === 'game_over') {
+    recordGameOverResult(state);
   }
 
   render();
