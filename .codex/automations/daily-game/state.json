@@ -14,5 +14,10 @@
       "concept": "Breakout-style brick breaker with falling debris that helps or hurts and missed debris speeds up the ball."
     }
   ],
-  "prs": []
+  "prs": [
+    {
+      "date": "2026-02-07",
+      "url": "https://github.com/RaquazaCode/Build-Classic-Small-Game-Manual-Run-2/pull/1"
+    }
+  ]
 }
