@@ -1,47 +1,18 @@
 {
-  "last_run_timestamp_utc": "2026-02-06T16:28:30Z",
+  "last_run_timestamp_utc": "2026-02-07T00:00:00.000Z",
   "games_built": [
     {
-      "date": "2026-02-06",
-      "slug": "shrinking-snake",
-      "concept": "Snake-style grid game with collapsing arena pressure",
-      "folder": "games/2026-02-06-shrinking-snake",
-      "branch": "codex/automation/daily-game-2026-02-06"
+      "date": "2026-02-07",
+      "slug": "breakout-falling-debris",
+      "concept": "Breakout-style brick breaker with falling debris that helps or hurts and missed debris speeds up the ball.",
+      "folder": "games/2026-02-07-breakout-falling-debris"
     }
   ],
-  "recently_attempted_concepts": [
+  "recent_concepts": [
     {
-      "date": "2026-02-06",
-      "slug": "shrinking-snake",
-      "concept": "Snake-style grid game with collapsing arena pressure"
-    },
-    {
-      "date": "2026-02-06",
-      "slug": "pong-speed-zones",
-      "concept": "Pong-style paddle game with speed modifier lanes"
-    },
-    {
-      "date": "2026-02-06",
-      "slug": "breakout-risk-multiplier",
-      "concept": "Breakout-style brick breaker with combo-risk scoring"
-    },
-    {
-      "date": "2026-02-06",
-      "slug": "asteroids-overheat",
-      "concept": "Asteroids-style shooter with temporary weapon overheat"
-    },
-    {
-      "date": "2026-02-06",
-      "slug": "minesweeper-countdown",
-      "concept": "Minesweeper-style puzzle with timed bonus decay"
+      "date": "2026-02-07",
+      "concept": "Breakout-style brick breaker with falling debris that helps or hurts and missed debris speeds up the ball."
     }
   ],
-  "pr_links_or_identifiers": [
-    {
-      "date": "2026-02-06",
-      "branch": "codex/automation/daily-game-2026-02-06",
-      "pr": "PENDING_REMOTE_CONFIGURATION",
-      "title": "Automation: Daily classic game MVP (2026-02-06)"
-    }
-  ]
+  "prs": []
 }
