@@ -1,0 +1,6 @@
+[
+  {
+    "type": "pageerror",
+    "text": "SyntaxError: The requested module '/src/entities.ts' does not provide an export named 'Asteroid'"
+  }
+]
